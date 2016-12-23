@@ -15,32 +15,37 @@ char outputName[256];
 // int nsnr;
 
 
-cvec select_anntena(ND_UQAM chan, bvec bits, int nAntenna) {
+cvec select_anntena(PSK chan, bvec bits, int nAntenna) {
 	cvec s = zeros_c(nTx);	// アンテナ数
 
-    int Nbits = length(bits);
+	int Nbits = length(bits);
 
-    int selected_anntena = bin2dec(bits(0, nAntenna - 1));
-    complex<double> symbol = chan.get_symbols()(selected_anntena)(bin2dec(bits(nAntenna, Nbits - 1)));
+	int selected_anntena = bin2dec(bits(0, nAntenna - 1));
 
-    s(selected_anntena) = symbol;
+	if (nAntenna == 0) {
+		complex<double> symbol = chan.get_symbols()(bin2dec(bits(nAntenna, Nbits - 1)));
+		s(0) = symbol;
+	} else {
+		complex<double> symbol = chan.get_symbols()(bin2dec(bits(nAntenna, Nbits - 1)));
+		s(selected_anntena) = symbol;
+	}
 
 	return s;
 }
 
-Array<cvec> get_samples(ND_UQAM chan, int nSymbols) {
-    Array<cvec> symbols = chan.get_symbols();
-    Array<cvec> samples(nSymbols * nTx);
-    cvec tmp;
+Array<cvec> get_samples(PSK chan, int nSymbols) {
+	cvec symbols = chan.get_symbols();
+	Array<cvec> samples(nSymbols * nTx);
+	cvec tmp;
 
-    for (int i = 0; i < nTx; i++) {
-        for (int j = 0; j < nSymbols; j++) {
-            tmp = zeros_c(nTx);
-            tmp(i) = symbols(i)(j);
+	for (int i = 0; i < nTx; i++) {
+	    for (int j = 0; j < nSymbols; j++) {
+	        tmp = zeros_c(nTx);
+	        tmp(i) = symbols(j);
 
-            samples(nSymbols * i + j) = tmp;
-        }
-    }
+	        samples(nSymbols * i + j) = tmp;
+	    }
+	}
 
 	return samples;
 }
@@ -54,14 +59,21 @@ vec sm_demodulator(cvec y, cmat h, cvec s, Array<cvec> samples, int nSymbols) {
 
 	for (j = 0; j < nTx; j++) {	// アンテナ数
 		for	(q = 0; q < nSymbols; q++) {	// シンボル数
-			P(i++) = coef * exp(-norm(y - h * samples(nSymbols * j + q), "fro"));
+			if (nTx == 1) {
+				P(i++) = -norm(y - h * samples(nSymbols * j + q));
+			} else {
+				P(i++) = coef * exp(-norm(y - h * samples(nSymbols * j + q), "fro"));
+			}
+
+			// MRC
+			// P(i++) = -norm(y - (pow(norm(h(0)), 2) + pow(norm(h(1)), 2)) * samples((nSymbols * j + q)));
 		}
 	}
 
 	argmax_P = max_index(P);
 
-	j_q_pair(0) = argmax_P / 4;
-	j_q_pair(1) = argmax_P % 4;
+	j_q_pair(0) = argmax_P / nSymbols;
+	j_q_pair(1) = argmax_P % nSymbols;
 
 	return j_q_pair;
 }
@@ -93,20 +105,16 @@ int main(int argc, char **argv) {
   ofs << "SNR[dB],BER" << endl;   // CSV header
 
   /* ==================== Initialize ==================== */
-  const int m = log2((1 << (2 * nC)) * nTx);  // each transmitted bits at a particular time instance
+  const int m = log2(nC * nTx);  // each transmitted bits at a particular time instance
   const int Nu = m * Nt;  // length of data packet (before applyng any channel coding)
 
   const int nAntenna = length(dec2bin(nTx)) - 1;   // if nTx=4: Nanntena=2, if nTx=8: Nanntena=3
-  const int nSymbols = 1 << (2 * nC);
+  const int nSymbols = nC;
   const int nSymbin = length(dec2bin(nSymbols)) - 1;
 
   /* initialize MIMO channel with uniform QAM per complex dimension and Gray coding */
-  ND_UQAM chan;
-  chan.set_M(nTx, nSymbols);
-  cout << chan << endl;
-
-	OFDM ofdm;
-	ofdm.set_parameters(2, 0);
+	PSK chan;
+	chan.set_M(nSymbols);
 
   const int Nctx = Nu;        // Total number of bits to transmit
   const int Nvec = Nctx / m;  // Number of channel vectors to transmit
@@ -116,7 +124,7 @@ int main(int argc, char **argv) {
 
 	ivec Contflag = ones_i(Nmethods);   // flag to determine whether to run a given demodulator
 
-    cout << "Running methods: " << Contflag << endl;
+  cout << "Running methods: " << Contflag << endl;
 
 	cout.setf(ios::fixed, ios::floatfield);
 	cout.setf(ios::showpoint);
@@ -132,9 +140,11 @@ int main(int argc, char **argv) {
 				const double Eb = 1.0;						// transmitted energy per information bit (1 / n)
 				const double N0 = inv_dB(-EbN0db(nsnr));
 				const double sigma2 = N0;					// Variance of each scalar complex noise sample
-				const double Es = 2 * nC * Eb;		        // Energy per complex scalar symbol
-															// (Each transmitted scalar complex symbol contains rate*2*nC
-															// information bits.)
+				// const double Es = 2 * nC * Eb;		        // Energy per complex scalar symbol
+				// 											// (Each transmitted scalar complex symbol contains rate*2*nC
+				// 											// information bits.)
+				// const double Ess = sqrt(Es);
+				const double Es = Eb / sigma2;
 				const double Ess = sqrt(Es);
 
 				Array<BERC> berc(Nmethods);			// counter for coded BER
@@ -151,7 +161,7 @@ int main(int argc, char **argv) {
 
         for (int k = 0; k < Nvec; k++) {
             if (k % Tc == 0) {  // generate a new channel realization every Tc intervals
-                H(k / Tc) = Ess * randn_c(nRx, nTx);
+                H(k / Tc) = randn_c(nRx, nTx);
             }
 
             /* --- modulate and transmit bits --- */
