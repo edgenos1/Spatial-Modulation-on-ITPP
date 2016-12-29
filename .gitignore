@@ -1,5 +1,5 @@
-*.yml
 *.csv
 *.o
 .clang_complete
 .DS_Store
+build/

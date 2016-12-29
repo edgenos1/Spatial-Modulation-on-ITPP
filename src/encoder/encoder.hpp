@@ -16,8 +16,9 @@ public:
   ImageEncoder(std::string inputFilename);
   virtual ~ImageEncoder() {};
 
-  std::string get_bytes_of_image(cv::Mat src);
+  std::string get_bytes_of_image();
   itpp::bvec convert(std::string bytes);
+  void decode(itpp::bvec received);
 };
 
 
