@@ -1,4 +1,6 @@
 #include <iostream>
+#include <string>
+#include <vector>
 #include <itpp/itcomm.h>
 #include <itpp/itbase.h>	// Addition (norm)
 #include <itpp/itstat.h>	// Addition (norm)
@@ -145,7 +147,7 @@ int main(int argc, char **argv) {
 				// 											// information bits.)
 				// const double Ess = sqrt(Es);
 				const double Es = Eb / sigma2;
-				const double Ess = sqrt(Es);
+        const double Ess = sqrt(Es);
 
 				Array<BERC> berc(Nmethods);			// counter for coded BER
 				Array<BERC> bercu(Nmethods);		// counter for uncoded BER
