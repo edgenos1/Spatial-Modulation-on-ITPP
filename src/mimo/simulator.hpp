@@ -23,7 +23,7 @@ private:
   int nSymbols;
   int nSymbin;
 
-  itpp::PSK modulator;
+  itpp::QAM modulator;
 
   int Nctx;
   int Nvec;

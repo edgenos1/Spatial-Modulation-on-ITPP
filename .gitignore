@@ -3,3 +3,4 @@
 .clang_complete
 .DS_Store
 build/
+.projectile

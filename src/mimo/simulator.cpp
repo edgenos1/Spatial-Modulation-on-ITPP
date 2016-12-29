@@ -93,7 +93,7 @@ itpp::Array<itpp::cvec> SMSimulator::get_samples() {
 }
 
 itpp::bvec SMSimulator::simulate(int TotalNumSimulate) {
-  for (int nsnr = 0; nsnr < TotalNumSimulate; nsnr++) {
+  for (int nsnr = 12; nsnr < TotalNumSimulate; nsnr++) {
     itpp::cvec Y;
     itpp::cmat H;
     itpp::cvec S;
