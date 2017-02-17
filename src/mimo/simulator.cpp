@@ -1,4 +1,5 @@
 #include "simulator.hpp"
+#include <float.h>
 
 
 void SMSimulator::init(itpp::bvec _inputBits) {
@@ -31,6 +32,35 @@ void SMSimulator::init(itpp::bvec _inputBits) {
 
   return;
 }
+
+
+void SMxSimulator::init(itpp::bvec _inputBits) {
+  inputBits = _inputBits;
+
+  Nt = itpp::length(inputBits);
+
+  ofs << "SNR[dB],BER" << std::endl;
+
+  m = log2(nC) * nTx;
+
+  if (Nt % m != 0) {
+    inputBits = itpp::concat(inputBits, itpp::zeros_b(Nt % m));
+    Nt = itpp::length(inputBits);  // Refresh
+  }
+
+  Nu = Nt;
+
+  modulator.set_M(nTx, nC);
+
+  Nctx = Nu;
+  Nvec = Nctx / m;
+  Nbitspvec = m;
+
+  std::cout << m << " " << Nu << " " << Nctx << " " << Nvec << " " << Nbitspvec << std::endl;
+
+  return;
+}
+
 
 itpp::cvec SMSimulator::select_antenna(itpp::bvec bits) {
   itpp::cvec s = itpp::zeros_c(nTx); // アンテナ数
@@ -93,7 +123,12 @@ itpp::Array<itpp::cvec> SMSimulator::get_samples() {
 }
 
 itpp::bvec SMSimulator::simulate(int TotalNumSimulate) {
-  for (int nsnr = 12; nsnr < TotalNumSimulate; nsnr++) {
+  std::cout.setf(std::ios::fixed, std::ios::floatfield);
+  std::cout.setf(std::ios::showpoint);
+  //std::cout.setf(std::ios::scientific, std::ios::floatfield);
+  std::cout.precision(10);
+
+  for (int nsnr = 0; nsnr <= TotalNumSimulate; nsnr++) {
     itpp::cvec Y;
     itpp::cmat H;
     itpp::cvec S;
@@ -139,6 +174,7 @@ itpp::bvec SMSimulator::simulate(int TotalNumSimulate) {
 
     std::cout << "-----------------------------------------------------" << std::endl;
     std::cout << "Eb/N0: " << nsnr << " dB. Simulated " << Nctx << " bits." << std::endl;
+    //std::cout << " Uncoded BER: " << error_rate << " (ML)" << std::endl;
     std::cout << " Uncoded BER: " << bercu.get_errorrate() << " (ML)" << std::endl;
     ofs << std::dec << nsnr << "," << std::scientific << bercu.get_errorrate() << std::endl;
 
@@ -146,5 +182,87 @@ itpp::bvec SMSimulator::simulate(int TotalNumSimulate) {
     return received;
   }
 
-  // return received;
+  return itpp::bvec(1);
+}
+
+
+itpp::bvec SMxSimulator::simulate(int TotalNumSimulate) {
+  const int Nmethods = 1;
+
+  std::cout.setf(std::ios::fixed, std::ios::floatfield);
+  std::cout.setf(std::ios::showpoint);
+  std::cout.precision(10);
+
+  for (int nsnr = 0; nsnr <= TotalNumSimulate; nsnr++) {
+    itpp::Array<itpp::cvec> Y(Nvec);
+    itpp::Array<itpp::cmat> H(Nvec + 1);
+    itpp::cvec e;
+
+    const double sigma2 = itpp::inv_dB(-nsnr);
+
+    itpp::BERC bercu;
+
+    itpp::bvec bitstmp;
+
+    itpp::bvec received(Nu);
+
+    for (int k = 0; k < Nvec; k++) {
+      H(k) = itpp::randn_c(nRx, nTx);
+
+      bitstmp = inputBits(k * Nbitspvec, (k + 1) * Nbitspvec - 1);
+
+      e = sqrt(sigma2) * itpp::randn_c(nRx);
+
+      //std::cout << length(bitstmp) << " " << sum(modulator.get_k()) << "\n";
+      itpp::cvec x = modulator.modulate_bits(bitstmp);
+
+      Y(k) = H(k) * x + e;
+
+      //std::cout << modulator(Y(k)) << std::endl;
+      /*
+      received.set_subvector(k * Nbitspvec,
+                             modulator.get_symbols()(0)(itpp::bin2dec(Y(k)))
+                             );
+      */
+    }
+
+    // -- demodulate --
+    itpp::Array<itpp::QLLRvec> LLRin(Nmethods);
+    for (int i = 0; i < Nmethods; i++) {
+      LLRin(i) = itpp::zeros_i(Nctx);
+    }
+
+    itpp::QLLRvec llr_apr = itpp::zeros_i(Nbitspvec);
+    itpp::QLLRvec llr_apost = itpp::zeros_i(Nbitspvec);
+
+    for (int k = 0; k < Nvec; k++) {
+      // ML demodulation
+      modulator.demodulate_soft_bits(Y(k), H(k), sigma2, llr_apr, llr_apost);
+      LLRin(0).set_subvector(k * Nbitspvec, llr_apost);
+    }
+
+    // -- decode and count errors --
+    for (int i = 0; i < Nmethods; i++) {
+      bercu.count(inputBits(0, Nu - 1), LLRin(0)(0, Nu - 1) < 0);
+    }
+
+    // -- received bits --
+    for (int i = 0; i < Nu; i++) {
+      received(i) = LLRin(0)(i) < 0;
+    }
+
+
+    //bercu.count(transmitted(0, Nu - 1), received(0, Nu - 1));
+
+    std::cout << "-----------------------------------------------------" << std::endl;
+    std::cout << "Eb/N0: " << nsnr << " dB. Simulated " << Nctx << " bits." << std::endl;
+    //std::cout << " Uncoded BER: " << error_rate << " (ML)" << std::endl;
+    std::cout << " Uncoded BER: " << bercu.get_errorrate() << " (ML)" << std::endl;
+    ofs << std::dec << nsnr << "," << std::scientific << bercu.get_errorrate() << std::endl;
+
+    // Debug
+    return received;
+  }
+
+  return itpp::bvec(1);
 }
