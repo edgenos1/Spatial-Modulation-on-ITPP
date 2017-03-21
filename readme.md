@@ -1,7 +1,7 @@
 # Spatial-Modulation-on-ITPP
 This program simulates spatial modulation and spatial multiplexing by transmitting image file(ex .bmp file).
 
-![Example](http://imgur.com/a/Gw1iU, "Example")
+![Example](http://i.imgur.com/QmCPDIg.png, "Example")
 
 # Requirements
 - CMake 3.7.1
@@ -10,7 +10,7 @@ This program simulates spatial modulation and spatial multiplexing by transmitti
 - IT++ 4.3.1
 
 # Build
-```
+```bash
 mkdir build && cd build
 cmake ..
 make
