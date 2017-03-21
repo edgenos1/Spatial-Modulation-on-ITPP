@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 2.8)
+find_package(PkgConfig)
+pkg_check_modules(ITPP REQUIRED itpp)
+add_definitions("-std=c++11")
+add_library(mimo simulator.cpp)
+target_link_libraries(mimo ${ITPP_LIBRARIES})
