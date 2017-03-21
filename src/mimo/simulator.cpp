@@ -17,7 +17,6 @@ void SMSimulator::init(itpp::bvec _inputBits) {
   }
 
   Nu = Nt;
-  /* !!!Warning!!! : nAntenna must be modified */
   nAntenna = itpp::length(itpp::dec2bin(nTx)) - 1;
   nSymbols = nC;
   nSymbin = itpp::length(itpp::dec2bin(nSymbols)) - 1;
@@ -50,7 +49,7 @@ void SMxSimulator::init(itpp::bvec _inputBits) {
 
   Nu = Nt;
 
-  modulator.set_M(nTx, nC);
+  modulator.set_M(nTx, m);
 
   Nctx = Nu;
   Nvec = Nctx / m;
@@ -122,147 +121,114 @@ itpp::Array<itpp::cvec> SMSimulator::get_samples() {
   return samples;
 }
 
-itpp::bvec SMSimulator::simulate(int TotalNumSimulate) {
-  std::cout.setf(std::ios::fixed, std::ios::floatfield);
-  std::cout.setf(std::ios::showpoint);
-  //std::cout.setf(std::ios::scientific, std::ios::floatfield);
-  std::cout.precision(10);
+itpp::bvec SMSimulator::simulate(int nsnr) {
+  itpp::cvec Y;
+  itpp::cmat H;
+  itpp::cvec S;
+  itpp::cvec e;
+  itpp::Array<itpp::cvec> Samples = SMSimulator::get_samples();
 
-  for (int nsnr = 0; nsnr <= TotalNumSimulate; nsnr++) {
-    itpp::cvec Y;
-    itpp::cmat H;
-    itpp::cvec S;
-    itpp::cvec e;
-    itpp::Array<itpp::cvec> Samples = SMSimulator::get_samples();
+  const double sigma2 = itpp::inv_dB(-nsnr);
 
-    const double sigma2 = itpp::inv_dB(-nsnr);
+  itpp::BERC bercu;
 
-    itpp::BERC bercu;
+  itpp::bvec bitstmp;
 
-    itpp::bvec bitstmp;
+  itpp::vec j_q_pair;
+  itpp::bvec transmittmp;
+  itpp::bvec receivetmp;
 
-    itpp::vec j_q_pair;
-    itpp::bvec transmittmp;
-    itpp::bvec receivetmp;
+  itpp::bvec transmitted(Nctx);
+  itpp::bvec received(Nctx);
 
-    itpp::bvec transmitted(Nctx);
-    itpp::bvec received(Nctx);
+  for (int k = 0; k < Nvec; k++) {
+    H = itpp::randn_c(nRx, nTx);
 
-    for (int k = 0; k < Nvec; k++) {
-      H = itpp::randn_c(nRx, nTx);
+    bitstmp = inputBits(k * Nbitspvec, (k + 1) * Nbitspvec - 1);
 
-      bitstmp = inputBits(k * Nbitspvec, (k + 1) * Nbitspvec - 1);
+    S = SMSimulator::select_antenna(bitstmp);
 
-      S = SMSimulator::select_antenna(bitstmp);
+    e = sqrt(sigma2) * itpp::randn_c(nRx);
 
-      e = sqrt(sigma2) * itpp::randn_c(nRx);
+    Y = H * S + e;
 
-      Y = H * S + e;
+    j_q_pair = SMSimulator::demodulate_bits(Y, H, S, Samples);
 
-      j_q_pair = SMSimulator::demodulate_bits(Y, H, S, Samples);
+    transmittmp = bitstmp;
+    receivetmp = itpp::concat(itpp::dec2bin(nAntenna, static_cast<int>(j_q_pair(0))),
+                              itpp::dec2bin(nSymbin, static_cast<int>(j_q_pair(1)))
+                              );
 
-      transmittmp = bitstmp;
-      receivetmp = itpp::concat(itpp::dec2bin(nAntenna, static_cast<int>(j_q_pair(0))),
-                                itpp::dec2bin(nSymbin, static_cast<int>(j_q_pair(1)))
-                                );
-
-      transmitted.set_subvector(k * Nbitspvec, transmittmp);
-      received.set_subvector(k * Nbitspvec, receivetmp);
-    }
-
-    bercu.count(transmitted(0, Nu - 1), received(0, Nu - 1));
-
-    std::cout << "-----------------------------------------------------" << std::endl;
-    std::cout << "Eb/N0: " << nsnr << " dB. Simulated " << Nctx << " bits." << std::endl;
-    //std::cout << " Uncoded BER: " << error_rate << " (ML)" << std::endl;
-    std::cout << " Uncoded BER: " << bercu.get_errorrate() << " (ML)" << std::endl;
-    ofs << std::dec << nsnr << "," << std::scientific << bercu.get_errorrate() << std::endl;
-
-    // Debug
-    return received;
+    transmitted.set_subvector(k * Nbitspvec, transmittmp);
+    received.set_subvector(k * Nbitspvec, receivetmp);
   }
 
-  return itpp::bvec(1);
+  bercu.count(transmitted(0, Nu - 1), received(0, Nu - 1));
+
+  std::cout << "-----------------------------------------------------" << std::endl;
+  std::cout << "Eb/N0: " << nsnr << " dB. Simulated " << Nctx << " bits." << std::endl;
+  std::cout << "BER: " << bercu.get_errorrate() << " (ML)" << std::endl;
+  ofs << std::dec << nsnr << "," << std::scientific << bercu.get_errorrate() << std::endl;
+
+  return received;
 }
 
 
-itpp::bvec SMxSimulator::simulate(int TotalNumSimulate) {
+itpp::bvec SMxSimulator::simulate(int nsnr) {
   const int Nmethods = 1;
+  const double sigma2 = itpp::inv_dB(-nsnr);
 
-  std::cout.setf(std::ios::fixed, std::ios::floatfield);
-  std::cout.setf(std::ios::showpoint);
-  std::cout.precision(10);
+  itpp::Array<itpp::cvec> Y(Nvec);
+  itpp::Array<itpp::cmat> H(Nvec + 1);
+  itpp::cvec e;
 
-  for (int nsnr = 0; nsnr <= TotalNumSimulate; nsnr++) {
-    itpp::Array<itpp::cvec> Y(Nvec);
-    itpp::Array<itpp::cmat> H(Nvec + 1);
-    itpp::cvec e;
+  itpp::BERC bercu;
 
-    const double sigma2 = itpp::inv_dB(-nsnr);
+  itpp::bvec bitstmp;
 
-    itpp::BERC bercu;
+  itpp::bvec received(Nu);
 
-    itpp::bvec bitstmp;
+  for (int k = 0; k < Nvec; k++) {
+    H(k) = itpp::randn_c(nRx, nTx);
 
-    itpp::bvec received(Nu);
+    bitstmp = inputBits(k * Nbitspvec, (k + 1) * Nbitspvec - 1);
 
-    for (int k = 0; k < Nvec; k++) {
-      H(k) = itpp::randn_c(nRx, nTx);
+    e = sqrt(sigma2) * itpp::randn_c(nRx);
 
-      bitstmp = inputBits(k * Nbitspvec, (k + 1) * Nbitspvec - 1);
+    itpp::cvec x = modulator.modulate_bits(bitstmp);
 
-      e = sqrt(sigma2) * itpp::randn_c(nRx);
-
-      //std::cout << length(bitstmp) << " " << sum(modulator.get_k()) << "\n";
-      itpp::cvec x = modulator.modulate_bits(bitstmp);
-
-      Y(k) = H(k) * x + e;
-
-      //std::cout << modulator(Y(k)) << std::endl;
-      /*
-      received.set_subvector(k * Nbitspvec,
-                             modulator.get_symbols()(0)(itpp::bin2dec(Y(k)))
-                             );
-      */
-    }
-
-    // -- demodulate --
-    itpp::Array<itpp::QLLRvec> LLRin(Nmethods);
-    for (int i = 0; i < Nmethods; i++) {
-      LLRin(i) = itpp::zeros_i(Nctx);
-    }
-
-    itpp::QLLRvec llr_apr = itpp::zeros_i(Nbitspvec);
-    itpp::QLLRvec llr_apost = itpp::zeros_i(Nbitspvec);
-
-    for (int k = 0; k < Nvec; k++) {
-      // ML demodulation
-      modulator.demodulate_soft_bits(Y(k), H(k), sigma2, llr_apr, llr_apost);
-      LLRin(0).set_subvector(k * Nbitspvec, llr_apost);
-    }
-
-    // -- decode and count errors --
-    for (int i = 0; i < Nmethods; i++) {
-      bercu.count(inputBits(0, Nu - 1), LLRin(0)(0, Nu - 1) < 0);
-    }
-
-    // -- received bits --
-    for (int i = 0; i < Nu; i++) {
-      received(i) = LLRin(0)(i) < 0;
-    }
-
-
-    //bercu.count(transmitted(0, Nu - 1), received(0, Nu - 1));
-
-    std::cout << "-----------------------------------------------------" << std::endl;
-    std::cout << "Eb/N0: " << nsnr << " dB. Simulated " << Nctx << " bits." << std::endl;
-    //std::cout << " Uncoded BER: " << error_rate << " (ML)" << std::endl;
-    std::cout << " Uncoded BER: " << bercu.get_errorrate() << " (ML)" << std::endl;
-    ofs << std::dec << nsnr << "," << std::scientific << bercu.get_errorrate() << std::endl;
-
-    // Debug
-    return received;
+    Y(k) = H(k) * x + e;
   }
 
-  return itpp::bvec(1);
+  // -- demodulate --
+  itpp::Array<itpp::QLLRvec> LLRin(Nmethods);
+  for (int i = 0; i < Nmethods; i++) {
+    LLRin(i) = itpp::zeros_i(Nctx);
+  }
+
+  itpp::QLLRvec llr_apr = itpp::zeros_i(Nbitspvec);
+  itpp::QLLRvec llr_apost = itpp::zeros_i(Nbitspvec);
+
+  for (int k = 0; k < Nvec; k++) {
+    // ML demodulation
+    modulator.demodulate_soft_bits(Y(k), H(k), sigma2, llr_apr, llr_apost);
+    LLRin(0).set_subvector(k * Nbitspvec, llr_apost);
+  }
+
+  // -- decode and count errors --
+  for (int i = 0; i < Nmethods; i++) {
+    bercu.count(inputBits(0, Nu - 1), LLRin(0)(0, Nu - 1) < 0);
+  }
+
+  // -- received bits --
+  for (int i = 0; i < Nu; i++) {
+    received(i) = LLRin(0)(i) < 0;
+  }
+
+  std::cout << "-----------------------------------------------------" << std::endl;
+  std::cout << "Eb/N0: " << nsnr << " dB. Simulated " << Nctx << " bits." << std::endl;
+  std::cout << "BER: " << bercu.get_errorrate() << " (ML)" << std::endl;
+  ofs << std::dec << nsnr << "," << std::scientific << bercu.get_errorrate() << std::endl;
+
+  return received;
 }
