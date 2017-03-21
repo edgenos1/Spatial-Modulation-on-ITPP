@@ -10,6 +10,9 @@ ImageEncoder::ImageEncoder(std::string inputFilename) {
 
   cv::imshow("transmit", show_img);
   cv::moveWindow("transmit", 0, 0);
+
+  std::cout << "Press enter key on \"transmit\" window." << std::endl;
+
   cv::waitKey(0);
 }
 
